@@ -10,19 +10,22 @@ import com.salpreh.csvmapper.annotation.CSVField;
 import com.salpreh.csvmapper.annotation.CSVSerializable;
 import com.salpreh.csvmapper.exception.CSVSerializationException;
 
-public class CSVMapper {
+public class StringCSVMapper implements ICSVMapper<String> {
 	
 	private static char WRAPPER_CHAR = '"';
 	private static char SEP_CHAR = ',';
 	
-	public String mapAsString(Object o) throws CSVSerializationException {
+	public String map(Object o) throws CSVSerializationException {
 		checkIfSerializable(o);
 
-		if (isCollection(o)) {
-			throw new CSVSerializationException("Collections serialization not supported yet");
-		}
-		
 		try {
+			if (isCollection(o)) {
+				return convertCollectionToString(o);
+			} else if (o.getClass().isArray()) {
+				return convertArrayToString((Object[])o);
+			}
+
+		
 			return convertSingleObjectToString(o, true);
 		} catch (IllegalArgumentException | IllegalAccessException e) {
 			throw new CSVSerializationException("Unable to serialize object", e);
@@ -33,6 +36,8 @@ public class CSVMapper {
 		if (o == null) {
 			throw new CSVSerializationException("Attempted to serialize null reference. Object passed is null");
 		}
+		
+		if (o.getClass().isArray() || isCollection(o)) return;
 
 		Class<?> clazz = o.getClass();
 		if (!clazz.isAnnotationPresent(CSVSerializable.class)) {
@@ -47,8 +52,36 @@ public class CSVMapper {
 		return cClazz.isAssignableFrom(clazz);
 	}
 	
+
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	private String convertCollectionToString(Object o) throws IllegalArgumentException, IllegalAccessException {
+		Collection<Object> oCollection = (Collection)o;
+		
+		if (oCollection.size() == 0) {
+			return "";
+		}
+		
+		Object[] arr = oCollection.toArray();
+		
+		return convertArrayToString(arr);
+	}
+	
+	private String convertArrayToString(Object[] oArr) throws IllegalArgumentException, IllegalAccessException {
+		String serialized = "";
+
+		Class<?> itClazz = oArr[0].getClass();
+		serialized += getHeadersString(itClazz);
+		for (Object o : oArr) {
+			serialized += convertSingleObjectToString(o, false);
+		}
+		
+		return serialized;
+	}
+	
 	private String convertSingleObjectToString(Object o, boolean addHeaders) throws IllegalArgumentException, IllegalAccessException {
-		String serialized = getHeadersString(o);
+		String serialized = "";
+		if (addHeaders) serialized += getHeadersString(o);
+
 		Class<?> clazz = o.getClass();
 		
 		List<String> values = new ArrayList<>();
@@ -64,6 +97,11 @@ public class CSVMapper {
 	
 	private String getHeadersString(Object o) {
 		Class<?> clazz = o.getClass();
+
+		return getHeadersString(clazz);
+	}
+
+	private String getHeadersString(Class<?> clazz) {
 		List<String> headers = new ArrayList<>();
 
 		for (Field f : clazz.getDeclaredFields()) {
